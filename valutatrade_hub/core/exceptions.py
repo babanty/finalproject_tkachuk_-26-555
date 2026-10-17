@@ -9,6 +9,10 @@ class ValidationError(ValutaTradeError, ValueError):
     """An input value violates a domain rule."""
 
 
+class StorageError(ValutaTradeError):
+    """Local data could not be read, validated, locked, or saved."""
+
+
 class InsufficientFundsError(ValutaTradeError):
     """A wallet cannot cover the requested withdrawal."""
 

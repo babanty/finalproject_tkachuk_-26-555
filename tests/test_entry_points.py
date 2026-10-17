@@ -14,6 +14,7 @@ def test_import_has_no_filesystem_side_effects(tmp_path):
             "-c",
             "import valutatrade_hub\n"
             "import valutatrade_hub.core.models\n"
+            "import valutatrade_hub.infra.database\n"
             "print('import-ok')",
         ],
         cwd=tmp_path,
