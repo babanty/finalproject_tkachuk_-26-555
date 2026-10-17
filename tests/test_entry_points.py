@@ -9,7 +9,13 @@ from importlib.metadata import distribution
 def test_import_has_no_filesystem_side_effects(tmp_path):
     """Importing the package does not create application state."""
     result = subprocess.run(
-        [sys.executable, "-c", "import valutatrade_hub; print('import-ok')"],
+        [
+            sys.executable,
+            "-c",
+            "import valutatrade_hub\n"
+            "import valutatrade_hub.core.models\n"
+            "print('import-ok')",
+        ],
         cwd=tmp_path,
         capture_output=True,
         text=True,
