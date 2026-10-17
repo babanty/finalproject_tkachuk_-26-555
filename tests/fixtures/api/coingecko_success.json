@@ -1,0 +1,5 @@
+{
+  "bitcoin": {"usd": 59337.21, "last_updated_at": 1792238400},
+  "ethereum": {"usd": 3720.0, "last_updated_at": 1792238390},
+  "solana": {"usd": 145.12, "last_updated_at": 1792238380}
+}

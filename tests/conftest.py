@@ -3,6 +3,7 @@
 import os
 
 import pytest
+import requests
 
 from valutatrade_hub.core.models import Portfolio, User, Wallet
 from valutatrade_hub.infra.database import DatabaseManager
@@ -16,11 +17,24 @@ def isolate_configuration(monkeypatch):
     monkeypatch.setattr(SettingsLoader, "_instance", None)
     monkeypatch.setattr(DatabaseManager, "_instance", None)
     for key in list(os.environ):
-        if key.startswith("VALUTATRADE_"):
+        if key.startswith("VALUTATRADE_") or key in {
+            "COINGECKO_API_KEY",
+            "EXCHANGERATE_API_KEY",
+        }:
             monkeypatch.delenv(key)
     shutdown_logging()
     yield
     shutdown_logging()
+
+
+@pytest.fixture(autouse=True)
+def block_http_requests(monkeypatch):
+    """All tests must inject a transport instead of contacting a live API."""
+
+    def forbidden_request(*args, **kwargs):
+        raise AssertionError("Реальные HTTP-запросы запрещены в тестах")
+
+    monkeypatch.setattr(requests.sessions.Session, "request", forbidden_request)
 
 
 @pytest.fixture

@@ -1,0 +1,7 @@
+{
+  "result": "success",
+  "base_code": "USD",
+  "time_last_update_unix": 1792195200,
+  "time_next_update_unix": 1792281600,
+  "conversion_rates": {"USD": 1, "EUR": 0.927, "GBP": 0.809, "RUB": 98.45}
+}
