@@ -13,6 +13,10 @@ class StorageError(ValutaTradeError):
     """Local data could not be read, validated, locked, or saved."""
 
 
+class AuthenticationError(ValutaTradeError):
+    """Credentials are invalid or an operation requires a signed-in user."""
+
+
 class InsufficientFundsError(ValutaTradeError):
     """A wallet cannot cover the requested withdrawal."""
 

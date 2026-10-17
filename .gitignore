@@ -14,3 +14,9 @@ __pycache__/
 /data/*.lock
 /data/*.tmp
 /logs/
+/docs/
+/.codex/
+/.agents/
+/AGENTS.md
+/START_HERE.md
+/IMPLEMENTATION_PLAN.md

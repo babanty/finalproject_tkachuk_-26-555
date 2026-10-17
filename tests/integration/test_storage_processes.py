@@ -2,7 +2,10 @@
 
 import multiprocessing
 
-from valutatrade_hub.core.exceptions import StorageError
+import pytest
+
+from valutatrade_hub.core.exceptions import StorageError, ValidationError
+from valutatrade_hub.core.usecases import TradingService
 from valutatrade_hub.infra.database import DatabaseManager
 from valutatrade_hub.infra.settings import SettingsLoader
 
@@ -95,3 +98,51 @@ def test_lock_timeout_is_reported_as_domain_error(database):
         _finish_processes([process])
         results.close()
     assert process.exitcode == 0
+
+
+def _register_account(directory, username, ready, start, results):
+    settings = SettingsLoader(overrides={"data_dir": directory})
+    repository = DatabaseManager(settings)
+    service = TradingService(repository, rate_provider=lambda source, target: 1.0)
+    ready.put(True)
+    if not start.wait(timeout=15):
+        raise RuntimeError("start event timed out")
+    try:
+        user = service.register(username, "secret")
+    except ValidationError:
+        results.put("duplicate")
+    else:
+        results.put(user.user_id)
+
+
+@pytest.mark.parametrize("same_username", [False, True])
+def test_concurrent_registration_preserves_unique_ids_and_names(
+    database, same_username
+):
+    """ID allocation and duplicate detection share the account write lock."""
+    context = multiprocessing.get_context("spawn")
+    ready, results = context.Queue(), context.Queue()
+    start = context.Event()
+    names = ["Алиса", "Алиса" if same_username else "Боб"]
+    processes = [
+        context.Process(
+            target=_register_account,
+            args=(str(database.data_dir), username, ready, start, results),
+        )
+        for username in names
+    ]
+    for process in processes:
+        process.start()
+    try:
+        assert ready.get(timeout=15)
+        assert ready.get(timeout=15)
+        start.set()
+        outcomes = {results.get(timeout=15), results.get(timeout=15)}
+    finally:
+        start.set()
+        _finish_processes(processes)
+        ready.close()
+        results.close()
+    assert all(process.exitcode == 0 for process in processes)
+    assert outcomes == ({1, "duplicate"} if same_username else {1, 2})
+    assert len(database.load_users()) == (1 if same_username else 2)
