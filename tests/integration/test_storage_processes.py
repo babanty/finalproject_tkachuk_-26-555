@@ -4,7 +4,11 @@ import multiprocessing
 
 import pytest
 
-from valutatrade_hub.core.exceptions import StorageError, ValidationError
+from valutatrade_hub.core.exceptions import (
+    InsufficientFundsError,
+    StorageError,
+    ValidationError,
+)
 from valutatrade_hub.core.usecases import TradingService
 from valutatrade_hub.infra.database import DatabaseManager
 from valutatrade_hub.infra.settings import SettingsLoader
@@ -146,3 +150,60 @@ def test_concurrent_registration_preserves_unique_ids_and_names(
     assert all(process.exitcode == 0 for process in processes)
     assert outcomes == ({1, "duplicate"} if same_username else {1, 2})
     assert len(database.load_users()) == (1 if same_username else 2)
+
+
+def _buy_concurrently(directory, ready, start, results):
+    try:
+        settings = SettingsLoader(overrides={"data_dir": directory})
+        repository = DatabaseManager(settings)
+        service = TradingService(repository, rate_provider=lambda source, target: 1.0)
+        service.login("Алиса", "secret")
+        ready.put(True)
+        if not start.wait(timeout=15):
+            raise RuntimeError("start event timed out")
+        succeeded, rejected = 0, 0
+        for iteration in range(10):
+            try:
+                service.buy("BTC", 1)
+            except InsufficientFundsError:
+                rejected += 1
+            else:
+                succeeded += 1
+        results.put((succeeded, rejected))
+    except Exception as error:
+        results.put(type(error).__name__)
+
+
+def test_concurrent_purchases_cannot_overspend_or_lose_history(database, saved_account):
+    """Twenty concurrent attempts spend ten USD exactly once and retain ten buys."""
+    context = multiprocessing.get_context("spawn")
+    ready, results = context.Queue(), context.Queue()
+    start = context.Event()
+    processes = [
+        context.Process(
+            target=_buy_concurrently,
+            args=(str(database.data_dir), ready, start, results),
+        )
+        for worker_index in range(2)
+    ]
+    for process in processes:
+        process.start()
+    try:
+        assert ready.get(timeout=15)
+        assert ready.get(timeout=15)
+        start.set()
+        outcomes = [results.get(timeout=15), results.get(timeout=15)]
+        assert all(isinstance(outcome, tuple) for outcome in outcomes), outcomes
+        assert tuple(map(sum, zip(*outcomes))) == (10, 10)
+    finally:
+        start.set()
+        _finish_processes(processes)
+        ready.close()
+        results.close()
+    assert all(process.exitcode == 0 for process in processes)
+    saved = database.get_portfolio(1, rate_provider=lambda source, target: 1.0)
+    assert saved.get_wallet("USD").balance == 0
+    assert saved.get_wallet("BTC").balance == 10
+    assert saved.get_total_value() == 10
+    assert len(saved.transactions) == 10
+    assert len({item.id for item in saved.transactions}) == 10

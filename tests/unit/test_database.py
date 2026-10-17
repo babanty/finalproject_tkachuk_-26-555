@@ -224,7 +224,18 @@ def test_mutation_failure_preserves_both_wallets(database, saved_account):
 def test_update_preserves_extra_transaction_metadata(database, saved_account):
     """Wallet serialization does not discard a portfolio's transaction list."""
     records = database.read_document("portfolios")
-    records[0]["transactions"] = [{"id": "earlier-transaction"}]
+    records[0]["transactions"] = [
+        {
+            "id": "40d2d056-49f2-4fb7-bc93-999071d28131",
+            "action": "DEPOSIT",
+            "currency_code": "USD",
+            "amount": 10,
+            "rate": 1,
+            "base": "USD",
+            "total": 10,
+            "timestamp": "2026-10-17T00:00:00Z",
+        }
+    ]
     atomic_write_json(database.get_path("portfolios"), records)
     database.update_portfolio(
         1,

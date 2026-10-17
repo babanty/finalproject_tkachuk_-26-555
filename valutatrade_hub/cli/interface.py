@@ -49,6 +49,19 @@ def build_parser(*, interactive: bool = False) -> CommandParser:
     rate = commands.add_parser("get-rate", help="Показать курс", allow_abbrev=False)
     rate.add_argument("--from", dest="from_code", required=True, help="Исходная валюта")
     rate.add_argument("--to", dest="to_code", required=True, help="Целевая валюта")
+    deposit = commands.add_parser(
+        "deposit", help="Пополнить виртуальный баланс USD", allow_abbrev=False
+    )
+    deposit.add_argument("--amount", required=True, type=float, help="Сумма в USD")
+    for name, description in (
+        ("buy", "Купить валюту за USD"),
+        ("sell", "Продать валюту за USD"),
+    ):
+        trade = commands.add_parser(name, help=description, allow_abbrev=False)
+        trade.add_argument("--currency", required=True, help="Код валюты")
+        trade.add_argument(
+            "--amount", required=True, type=float, help="Количество единиц валюты"
+        )
     commands.add_parser("logout", help="Завершить сессию")
     commands.add_parser("help", help="Показать справку")
     commands.add_parser("exit", help="Завершить приложение")
@@ -113,6 +126,43 @@ def _execute(
             f"Обратный курс {inverse.from_code}→{inverse.to_code}: {inverse.rate:.12g}",
             file=output,
         )
+    elif args.command in ("deposit", "buy", "sell"):
+        if args.command == "deposit":
+            result = service.deposit(args.amount)
+        elif args.command == "buy":
+            result = service.buy(args.currency, args.amount)
+        else:
+            result = service.sell(args.currency, args.amount)
+        transaction = result.transaction
+        if transaction.action == "DEPOSIT":
+            print(
+                f"Виртуальный баланс пополнен: {transaction.amount:.12g} USD",
+                file=output,
+            )
+        else:
+            operation = (
+                "Покупка выполнена"
+                if transaction.action == "BUY"
+                else "Продажа выполнена"
+            )
+            print(
+                f"{operation}: {transaction.amount:.12g} {transaction.currency_code} "
+                f"по курсу {transaction.rate:.12g} USD/{transaction.currency_code}",
+                file=output,
+            )
+            label = (
+                "Стоимость покупки"
+                if transaction.action == "BUY"
+                else "Выручка от продажи"
+            )
+            print(f"{label}: {transaction.total:,.12g} USD", file=output)
+        print("Изменения в портфеле:", file=output)
+        for change in result.changes:
+            print(
+                f"- {change.currency_code}: было {change.before:.12g} "
+                f"→ стало {change.after:.12g}",
+                file=output,
+            )
 
 
 def run_repl(

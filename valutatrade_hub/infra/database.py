@@ -175,7 +175,7 @@ class DatabaseManager:
             )
 
     def save_account(self, user: User, portfolio: Portfolio) -> None:
-        """Save an account pair, compensating an ordinary second-write failure."""
+        """Save an account pair, preserving history and compensating write failures."""
         if user.user_id != portfolio.user_id:
             raise ValidationError("Владелец портфеля не соответствует пользователю")
         with self.locked():
@@ -184,6 +184,10 @@ class DatabaseManager:
                 (item for item in portfolios if item["user_id"] == user.user_id), {}
             )
             saved_portfolio = {**previous_portfolio, **portfolio_to_dict(portfolio)}
+            if previous_portfolio:
+                saved_portfolio["transactions"] = previous_portfolio.get(
+                    "transactions", []
+                )
             updated_users = [item for item in users if item["user_id"] != user.user_id]
             updated_users.append(user_to_dict(user))
             updated_portfolios = [
@@ -212,7 +216,7 @@ class DatabaseManager:
         *,
         rate_provider: RateProvider,
     ) -> Portfolio:
-        """Apply a mutation to freshly loaded wallets and save only on success."""
+        """Apply a mutation to fresh balances and history, saving only on success."""
         validate_user_id(user_id)
         with self.locked():
             users, portfolios = self._read_accounts()

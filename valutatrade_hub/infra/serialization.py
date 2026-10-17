@@ -9,7 +9,13 @@ from valutatrade_hub.core.exceptions import (
     StorageError,
     ValutaTradeError,
 )
-from valutatrade_hub.core.models import Portfolio, RateProvider, User, Wallet
+from valutatrade_hub.core.models import (
+    Portfolio,
+    RateProvider,
+    Transaction,
+    User,
+    Wallet,
+)
 from valutatrade_hub.core.utils import validate_amount, validate_text
 
 
@@ -53,14 +59,45 @@ def user_from_dict(record: Any) -> User:
         raise StorageError("Некорректная запись пользователя в users.json") from error
 
 
+def transaction_to_dict(transaction: Transaction) -> dict:
+    """Serialize one operation with a UTC timestamp."""
+    return {
+        "id": transaction.id,
+        "action": transaction.action,
+        "currency_code": transaction.currency_code,
+        "amount": transaction.amount,
+        "rate": transaction.rate,
+        "base": transaction.base,
+        "total": transaction.total,
+        "timestamp": transaction.timestamp.isoformat().replace("+00:00", "Z"),
+    }
+
+
+def transaction_from_dict(record: Any) -> Transaction:
+    """Restore a complete operation without accepting malformed history."""
+    if not isinstance(record, dict):
+        raise ValueError("Expected a transaction object")
+    return Transaction(
+        record["id"],
+        record["action"],
+        record["currency_code"],
+        record["amount"],
+        record["rate"],
+        record["base"],
+        record["total"],
+        _timestamp(record["timestamp"]),
+    )
+
+
 def portfolio_to_dict(portfolio: Portfolio) -> dict:
-    """Serialize a portfolio's ownership and wallet balances."""
+    """Serialize ownership, wallet balances, and the complete operation history."""
     return {
         "user_id": portfolio.user_id,
         "wallets": {
             code: {"currency_code": code, "balance": wallet.balance}
             for code, wallet in portfolio.wallets.items()
         },
+        "transactions": [transaction_to_dict(item) for item in portfolio.transactions],
     }
 
 
@@ -81,7 +118,13 @@ def portfolio_from_dict(
         if not isinstance(record.get("transactions", []), list):
             raise ValueError("Expected a transaction list")
         return Portfolio(
-            record["user_id"], wallets, user=user, rate_provider=rate_provider
+            record["user_id"],
+            wallets,
+            user=user,
+            rate_provider=rate_provider,
+            transactions=[
+                transaction_from_dict(item) for item in record.get("transactions", [])
+            ],
         )
     except (KeyError, TypeError, ValueError, ValutaTradeError) as error:
         raise StorageError("Некорректная запись портфеля в portfolios.json") from error

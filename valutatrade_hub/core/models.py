@@ -7,8 +7,10 @@ import hmac
 import math
 import re
 import secrets
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from uuid import UUID
 
 from valutatrade_hub.core.currencies import get_currency
 from valutatrade_hub.core.exceptions import InsufficientFundsError, ValidationError
@@ -23,6 +25,57 @@ MIN_PASSWORD_LENGTH = 4
 SALT_BYTES = 16
 
 type RateProvider = Callable[[str, str], float]
+
+
+@dataclass(frozen=True)
+class Transaction:
+    """An immutable, validated record of a USD-settled portfolio operation."""
+
+    id: str
+    action: str
+    currency_code: str
+    amount: float
+    rate: float
+    base: str
+    total: float
+    timestamp: datetime
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.id, str):
+            raise ValidationError("Идентификатор операции должен быть UUID")
+        try:
+            identifier = str(UUID(self.id))
+        except ValueError as error:
+            raise ValidationError("Идентификатор операции должен быть UUID") from error
+        if identifier != self.id:
+            raise ValidationError(
+                "Идентификатор операции должен быть каноническим UUID"
+            )
+        if self.action not in ("DEPOSIT", "BUY", "SELL"):
+            raise ValidationError("Неизвестный тип операции")
+        code = get_currency(self.currency_code).code
+        if self.base != "USD":
+            raise ValidationError("Расчётная валюта операции должна быть USD")
+        amount = validate_amount(self.amount)
+        rate = validate_amount(self.rate)
+        total = validate_amount(self.total)
+        if total != validate_amount(amount * rate):
+            raise ValidationError("Стоимость операции не соответствует сумме и курсу")
+        if self.action == "DEPOSIT":
+            if code != "USD" or rate != 1:
+                raise ValidationError("Пополнение допускается только в USD по курсу 1")
+        elif code == "USD":
+            raise ValidationError("Обмен USD на USD недопустим")
+        if (
+            not isinstance(self.timestamp, datetime)
+            or self.timestamp.utcoffset() is None
+        ):
+            raise ValidationError("Время операции должно содержать часовой пояс")
+        object.__setattr__(self, "currency_code", code)
+        object.__setattr__(self, "amount", amount)
+        object.__setattr__(self, "rate", rate)
+        object.__setattr__(self, "total", total)
+        object.__setattr__(self, "timestamp", self.timestamp.astimezone(UTC))
 
 
 class User:
@@ -183,6 +236,7 @@ class Portfolio:
         *,
         user: User,
         rate_provider: RateProvider,
+        transactions: Sequence[Transaction] | None = None,
     ) -> None:
         self._user_id = validate_user_id(user_id)
         if not isinstance(user, User) or user.user_id != self._user_id:
@@ -192,6 +246,13 @@ class Portfolio:
         self._user = user
         self._rate_provider = rate_provider
         self._wallets: dict[str, Wallet] = {}
+        self._transactions: list[Transaction] = []
+        self._transaction_ids: set[str] = set()
+        if transactions is not None:
+            if not isinstance(transactions, (list, tuple)):
+                raise ValidationError("История операций должна быть списком")
+            for transaction in transactions:
+                self.add_transaction(transaction)
         if wallets is not None:
             if not isinstance(wallets, Mapping):
                 raise ValidationError("Кошельки должны быть словарём")
@@ -224,6 +285,20 @@ class Portfolio:
         if code not in self._wallets:
             self._wallets[code] = Wallet(code)
         return self._wallets[code]
+
+    @property
+    def transactions(self) -> tuple[Transaction, ...]:
+        """Return immutable history without exposing the internal list."""
+        return tuple(self._transactions)
+
+    def add_transaction(self, transaction: Transaction) -> None:
+        """Append one validated operation, rejecting duplicate identifiers."""
+        if not isinstance(transaction, Transaction):
+            raise ValidationError("Некорректная запись операции")
+        if transaction.id in self._transaction_ids:
+            raise ValidationError("Повторяющийся идентификатор операции")
+        self._transactions.append(transaction)
+        self._transaction_ids.add(transaction.id)
 
     def get_wallet(self, currency_code: str) -> Wallet | None:
         """Return the matching wallet, or None for a supported but absent code."""
