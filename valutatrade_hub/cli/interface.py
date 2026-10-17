@@ -14,6 +14,7 @@ from valutatrade_hub.core.rates import RateService
 from valutatrade_hub.core.usecases import TradingService
 from valutatrade_hub.infra.database import DatabaseManager
 from valutatrade_hub.infra.settings import SettingsLoader
+from valutatrade_hub.logging_config import configure_logging, safe_error_message
 
 
 class CommandParser(argparse.ArgumentParser):
@@ -202,7 +203,7 @@ def run_repl(
             except SystemExit:
                 continue
             except ValutaTradeError as error:
-                print(f"Ошибка: {error}", file=stderr)
+                print(f"Ошибка: {safe_error_message(error)}", file=stderr)
     finally:
         service.logout()
 
@@ -231,6 +232,7 @@ def main(
         settings = SettingsLoader(args.config, overrides=overrides)
         database = DatabaseManager(settings)
         database.initialize()
+        configure_logging(settings)
         rates = RateService(database, ttl_seconds=settings.get("rates_ttl_seconds"))
         service = TradingService(database, rate_service=rates)
         if args.command is None:
@@ -249,7 +251,7 @@ def main(
     except SystemExit as error:
         return int(error.code or 0)
     except ValutaTradeError as error:
-        print(f"Ошибка: {error}", file=stderr)
+        print(f"Ошибка: {safe_error_message(error)}", file=stderr)
         return 1
     except KeyboardInterrupt:
         print("\nРабота завершена", file=stdout)

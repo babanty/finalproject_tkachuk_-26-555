@@ -1,6 +1,7 @@
 """Run the complete funded trading scenario through actual CLI processes."""
 
 import io
+import json
 import os
 import subprocess
 import sys
@@ -83,6 +84,18 @@ def test_full_cli_trade_cycle_and_restart_keep_balances_and_history(tmp_path):
     assert len(records[0]["transactions"]) == 3
     assert records[0]["wallets"]["USD"]["balance"] == 7600
     assert records[0]["wallets"]["BTC"]["balance"] == pytest.approx(0.04)
+    events = [
+        json.loads(line)
+        for line in (tmp_path / "logs" / "actions.log").read_text("utf-8").splitlines()
+    ]
+    assert [event["transaction_id"] for event in events if event["result"] == "OK"] == [
+        transaction["id"] for transaction in records[0]["transactions"]
+    ]
+    assert [event["error_type"] for event in events if event["result"] == "ERROR"] == [
+        "InsufficientFundsError",
+        "ValidationError",
+        "AuthenticationError",
+    ]
 
 
 @pytest.mark.parametrize("command", ["deposit", "buy", "sell"])

@@ -14,6 +14,7 @@ from valutatrade_hub.core.exceptions import (
 from valutatrade_hub.core.models import Portfolio, RateProvider, Transaction, User
 from valutatrade_hub.core.rates import RateQuote, RateService
 from valutatrade_hub.core.utils import validate_amount, validate_number, validate_text
+from valutatrade_hub.decorators import log_action, set_action_quote
 from valutatrade_hub.infra.database import DatabaseManager
 
 
@@ -170,6 +171,7 @@ class TradingService:
             raise AuthenticationError("Сначала выполните login")
         return self._current_user
 
+    @log_action("DEPOSIT", verbose=True)
     def deposit(self, amount: float) -> OperationResult:
         """Add virtual USD funds and record the deposit in the same file write."""
         user = self._require_user()
@@ -177,10 +179,12 @@ class TradingService:
             user, "DEPOSIT", "USD", validate_amount(amount), 1.0
         )
 
+    @log_action("BUY", verbose=True)
     def buy(self, currency_code: str, amount: float) -> OperationResult:
         """Buy currency using available USD at a freshly obtained exchange rate."""
         return self._trade("BUY", currency_code, amount)
 
+    @log_action("SELL", verbose=True)
     def sell(self, currency_code: str, amount: float) -> OperationResult:
         """Sell available currency and receive the USD proceeds atomically."""
         return self._trade("SELL", currency_code, amount)
@@ -199,6 +203,7 @@ class TradingService:
     def _apply_operation(
         self, user: UserInfo, action: str, code: str, amount: float, rate: float
     ) -> OperationResult:
+        set_action_quote(rate, "USD")
         total = validate_amount(amount * rate)
         result = None
 

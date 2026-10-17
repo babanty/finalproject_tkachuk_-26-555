@@ -7,6 +7,7 @@ import pytest
 from valutatrade_hub.core.models import Portfolio, User, Wallet
 from valutatrade_hub.infra.database import DatabaseManager
 from valutatrade_hub.infra.settings import SettingsLoader
+from valutatrade_hub.logging_config import shutdown_logging
 
 
 @pytest.fixture(autouse=True)
@@ -17,6 +18,9 @@ def isolate_configuration(monkeypatch):
     for key in list(os.environ):
         if key.startswith("VALUTATRADE_"):
             monkeypatch.delenv(key)
+    shutdown_logging()
+    yield
+    shutdown_logging()
 
 
 @pytest.fixture
