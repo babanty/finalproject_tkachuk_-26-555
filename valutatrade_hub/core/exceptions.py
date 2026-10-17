@@ -17,6 +17,18 @@ class AuthenticationError(ValutaTradeError):
     """Credentials are invalid or an operation requires a signed-in user."""
 
 
+class RateUnavailableError(ValutaTradeError):
+    """Required currency-to-USD quotes are missing, expired, or future-dated."""
+
+    def __init__(self, currencies: frozenset[str]) -> None:
+        self.currencies = currencies
+        pairs = ", ".join(f"{code}_USD" for code in sorted(currencies))
+        super().__init__(
+            f"Нет актуального курса для {pairs}: котировка отсутствует, "
+            "устарела или датирована будущим. Обновите локальный кэш курсов."
+        )
+
+
 class InsufficientFundsError(ValutaTradeError):
     """A wallet cannot cover the requested withdrawal."""
 

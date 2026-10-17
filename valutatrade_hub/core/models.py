@@ -231,22 +231,29 @@ class Portfolio:
 
     def get_total_value(self, base_currency: str = "USD") -> float:
         """Value all nonzero balances in the requested currency."""
+        return self.get_valuation(base_currency)[1]
+
+    def get_valuation(
+        self, base_currency: str = "USD"
+    ) -> tuple[dict[str, float], float]:
+        """Calculate wallet values and their total in a single pass."""
         base = get_currency(base_currency).code
-        values = []
+        values = {}
         for code, wallet in self._wallets.items():
             if wallet.balance == 0:
+                values[code] = 0.0
                 continue
             if code == base:
                 rate = 1.0
             else:
                 rate = validate_amount(self._rate_provider(code, base))
-            values.append(
-                validate_number(wallet.balance * rate, field="Итог", allow_zero=True)
+            values[code] = validate_number(
+                wallet.balance * rate, field="Итог", allow_zero=True
             )
         try:
-            total = math.fsum(values)
+            total = math.fsum(values.values())
         except OverflowError as error:
             raise ValidationError(
                 "Итоговая стоимость портфеля слишком велика"
             ) from error
-        return validate_number(total, field="Итог", allow_zero=True)
+        return values, validate_number(total, field="Итог", allow_zero=True)

@@ -7,7 +7,10 @@ from collections.abc import Sequence
 from contextlib import redirect_stderr, redirect_stdout
 from typing import TextIO
 
+from prettytable import PrettyTable
+
 from valutatrade_hub.core.exceptions import ValidationError, ValutaTradeError
+from valutatrade_hub.core.rates import RateService
 from valutatrade_hub.core.usecases import TradingService
 from valutatrade_hub.infra.database import DatabaseManager
 from valutatrade_hub.infra.settings import SettingsLoader
@@ -43,14 +46,13 @@ def build_parser(*, interactive: bool = False) -> CommandParser:
         "show-portfolio", help="Показать портфель", allow_abbrev=False
     )
     portfolio.add_argument("--base", help="Базовая валюта (по умолчанию из настроек)")
+    rate = commands.add_parser("get-rate", help="Показать курс", allow_abbrev=False)
+    rate.add_argument("--from", dest="from_code", required=True, help="Исходная валюта")
+    rate.add_argument("--to", dest="to_code", required=True, help="Целевая валюта")
     commands.add_parser("logout", help="Завершить сессию")
     commands.add_parser("help", help="Показать справку")
     commands.add_parser("exit", help="Завершить приложение")
     return parser
-
-
-def _unavailable_rate(from_code: str, to_code: str) -> float:
-    raise ValidationError(f"Не удалось получить курс для {from_code}→{to_code}")
 
 
 def _execute(
@@ -82,9 +84,35 @@ def _execute(
         )
         if not portfolio.balances:
             print("Портфель пуст", file=output)
-        for code, balance in portfolio.balances:
-            print(f"- {code}: {balance:.12g}", file=output)
+        else:
+            table = PrettyTable(
+                ["Валюта", "Баланс", f"Стоимость ({portfolio.base_currency})"]
+            )
+            table.align = "r"
+            table.align["Валюта"] = "l"
+            for wallet in portfolio.wallets:
+                table.add_row(
+                    [
+                        wallet.currency_code,
+                        f"{wallet.balance:.12g}",
+                        f"{wallet.value:,.12g}",
+                    ]
+                )
+            print(table, file=output)
         print(f"ИТОГО: {portfolio.total:,.2f} {portfolio.base_currency}", file=output)
+    elif args.command == "get-rate":
+        quote = service.get_rate(args.from_code, args.to_code)
+        inverse = quote.inverse()
+        timestamp = quote.updated_at.isoformat().replace("+00:00", "Z")
+        print(
+            f"Курс {quote.from_code}→{quote.to_code}: {quote.rate:.12g} "
+            f"(обновлено: {timestamp}; источник: {quote.source})",
+            file=output,
+        )
+        print(
+            f"Обратный курс {inverse.from_code}→{inverse.to_code}: {inverse.rate:.12g}",
+            file=output,
+        )
 
 
 def run_repl(
@@ -153,7 +181,8 @@ def main(
         settings = SettingsLoader(args.config, overrides=overrides)
         database = DatabaseManager(settings)
         database.initialize()
-        service = TradingService(database, rate_provider=_unavailable_rate)
+        rates = RateService(database, ttl_seconds=settings.get("rates_ttl_seconds"))
+        service = TradingService(database, rate_service=rates)
         if args.command is None:
             return run_repl(
                 service,

@@ -9,6 +9,7 @@ from valutatrade_hub.core.exceptions import (
     ValidationError,
 )
 from valutatrade_hub.core.models import Portfolio, RateProvider, User
+from valutatrade_hub.core.rates import RateQuote, RateService
 from valutatrade_hub.core.utils import validate_text
 from valutatrade_hub.infra.database import DatabaseManager
 
@@ -22,23 +23,48 @@ class UserInfo:
 
 
 @dataclass(frozen=True)
+class WalletValuation:
+    """A balance and its value in the portfolio's display currency."""
+
+    currency_code: str
+    balance: float
+    value: float
+
+
+@dataclass(frozen=True)
 class PortfolioView:
     """A detached portfolio summary for presentation."""
 
     username: str
     base_currency: str
-    balances: tuple[tuple[str, float], ...]
+    wallets: tuple[WalletValuation, ...]
     total: float
+
+    @property
+    def balances(self) -> tuple[tuple[str, float], ...]:
+        """Return currency balances independently of their display valuation."""
+        return tuple((wallet.currency_code, wallet.balance) for wallet in self.wallets)
 
 
 class TradingService:
     """Coordinate account operations; keep authentication within this instance."""
 
     def __init__(
-        self, database: DatabaseManager, *, rate_provider: RateProvider
+        self,
+        database: DatabaseManager,
+        *,
+        rate_provider: RateProvider | None = None,
+        rate_service: RateService | None = None,
     ) -> None:
         self._database = database
-        self._rate_provider = rate_provider
+        if (rate_provider is None) == (rate_service is None):
+            raise ValidationError("Укажите один источник курсов")
+        self._rates = rate_service
+        self._rate_provider = (
+            rate_provider
+            if rate_provider is not None
+            else lambda source, target: self.get_rate(source, target).rate
+        )
         self._current_user: UserInfo | None = None
 
     @property
@@ -80,18 +106,39 @@ class TradingService:
         if self._current_user is None:
             raise AuthenticationError("Сначала выполните login")
         base = get_currency(base_currency).code
+        quotes = {}
         portfolio = self._database.get_portfolio(
-            self._current_user.user_id, rate_provider=self._rate_provider
+            self._current_user.user_id,
+            rate_provider=(
+                self._rate_provider
+                if self._rates is None
+                else lambda source, target: quotes[(source, target)].rate
+            ),
         )
         if portfolio is None:
             self.logout()
             raise StorageError("Портфель текущего пользователя не найден")
+        if self._rates is not None:
+            quotes.update(
+                self._rates.get_rates(
+                    (code, base)
+                    for code, wallet in portfolio.wallets.items()
+                    if wallet.balance != 0 and code != base
+                )
+            )
+        values, total = portfolio.get_valuation(base)
         return PortfolioView(
             username=portfolio.user.username,
             base_currency=base,
-            balances=tuple(
-                (code, wallet.balance)
+            wallets=tuple(
+                WalletValuation(code, wallet.balance, values[code])
                 for code, wallet in sorted(portfolio.wallets.items())
             ),
-            total=portfolio.get_total_value(base),
+            total=total,
         )
+
+    def get_rate(self, from_code: str, to_code: str) -> RateQuote:
+        """Return a market quote independently of the authentication session."""
+        if self._rates is None:
+            raise ValidationError("Сервис курсов не настроен")
+        return self._rates.get_rate(from_code, to_code)

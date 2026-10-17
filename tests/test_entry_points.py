@@ -16,6 +16,7 @@ def test_import_has_no_filesystem_side_effects(tmp_path):
             "import valutatrade_hub.core.models\n"
             "import valutatrade_hub.infra.database\n"
             "import valutatrade_hub.core.usecases\n"
+            "import valutatrade_hub.core.rates\n"
             "import valutatrade_hub.cli.interface\n"
             "print('import-ok')",
         ],
