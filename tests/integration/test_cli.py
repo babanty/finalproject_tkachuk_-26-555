@@ -83,7 +83,7 @@ def test_help_and_exit_do_not_create_data(tmp_path, arguments):
 def test_invalid_arguments_do_not_echo_input_or_create_data(tmp_path, arguments):
     directory = tmp_path / "unused"
     status, output, errors = invoke(["--data-dir", str(directory), *arguments])
-    assert status == 1
+    assert status == 2
     assert "Некорректные аргументы" in errors
     assert "secret" not in output + errors
     assert not directory.exists()

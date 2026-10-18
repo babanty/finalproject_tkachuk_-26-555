@@ -21,6 +21,9 @@ def test_import_has_no_filesystem_side_effects(tmp_path):
             "import valutatrade_hub.parser_service.api_clients\n"
             "import valutatrade_hub.parser_service.storage\n"
             "import valutatrade_hub.parser_service.updater\n"
+            "import valutatrade_hub.parser_service.scheduler\n"
+            "import valutatrade_hub.parser_service.__main__\n"
+            "import valutatrade_hub.cli.composition\n"
             "import valutatrade_hub.cli.interface\n"
             "print('import-ok')",
         ],

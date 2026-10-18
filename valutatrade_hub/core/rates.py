@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from types import MappingProxyType
 
-from valutatrade_hub.core.currencies import get_currency
+from valutatrade_hub.core.currencies import CryptoCurrency, get_currency
 from valutatrade_hub.core.exceptions import (
     RateUnavailableError,
     StorageError,
@@ -118,6 +118,40 @@ class RateService:
         self._refresh = refresh_callback
         self._load, self.invalidate = make_rate_cache(database)
 
+    def list_rates(
+        self, *, currency: str | None = None, top: int | None = None, base: str = "USD"
+    ) -> tuple[CachedRate, ...]:
+        """List one cached snapshot, including stale rows, without any refresh."""
+        base = get_currency(base).code
+        currency = None if currency is None else get_currency(currency).code
+        if top is not None and (type(top) is not int or top <= 0):
+            raise ValidationError("Количество курсов должно быть положительным целым")
+        snapshot = self._load()
+        now = _utc(self._clock())
+        required = {code for code in (base, currency) if code not in (None, "USD")}
+        missing = required - snapshot.keys()
+        if missing:
+            raise RateUnavailableError(frozenset(missing))
+        codes = sorted(snapshot) if currency is None else [currency]
+        rows = []
+        for code in codes:
+            if top is not None and not isinstance(get_currency(code), CryptoCurrency):
+                continue
+            legs = [snapshot[leg] for leg in {code, base} if leg != "USD"]
+            quote = self._quote((code, base), snapshot, now)
+            if legs and code == base:
+                quote = snapshot[code]
+                quote = RateQuote(code, base, 1.0, quote.updated_at, quote.source)
+            stale = any(
+                not 0 <= (now - leg.updated_at).total_seconds() < self._ttl
+                for leg in legs
+            )
+            rows.append(CachedRate(quote, stale))
+        if top is not None:
+            rows.sort(key=lambda row: (-row.quote.rate, row.quote.from_code))
+            rows = rows[:top]
+        return tuple(rows)
+
     def get_rate(
         self, from_code: str, to_code: str, *, refresh: bool = True
     ) -> RateQuote:
@@ -181,3 +215,11 @@ class RateService:
             min(quote.updated_at for quote in legs),
             " + ".join(sorted({quote.source for quote in legs})),
         )
+
+
+@dataclass(frozen=True)
+class CachedRate:
+    """A display-only quote that must not bypass trading freshness checks."""
+
+    quote: RateQuote
+    stale: bool
