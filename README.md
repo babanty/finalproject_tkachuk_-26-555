@@ -4,7 +4,9 @@
 
 ## Требования
 
-Windows 11, Git Bash и `uv`. Проект фиксирует Python 3.12 в `.python-version`; `uv` может установить его автоматически. Глобальная установка Python и активация `.venv` вручную не нужны.
+Python 3.12 и `uv`; команды ниже рассчитаны на Bash (Git Bash в Windows 11 либо Bash в Linux/WSL). В `.python-version` закреплён Python 3.12.15; `uv` может установить его автоматически. Глобальная установка Python и активация `.venv` вручную не нужны. Docker, Kubernetes и отдельная база данных не требуются.
+
+Установите Git и [uv](https://docs.astral.sh/uv/getting-started/installation/), затем откройте новый терминал и проверьте `git --version` и `uv --version`. Для первоначальной загрузки Python и зависимостей нужен интернет. Получите исходники проекта и перейдите в каталог с `pyproject.toml`.
 
 Команды из корня `finalproject_tkachuk_М26-555` в Git Bash:
 
@@ -14,6 +16,76 @@ uv run valutatrade --help
 uv run python -m valutatrade_hub --help
 uv run python main.py --help
 ```
+
+`uv sync --locked` восстанавливает окружение по `uv.lock`, включая инструменты разработки, и отказывается незаметно менять несовместимый lock-файл. Повторная команда не удаляет пользовательские данные. Для запуска только с рабочими зависимостями используйте `uv sync --locked --no-dev` и `uv run --no-dev valutatrade`. Имя дистрибутива — `finalproject-tkachuk-m26-555`, импортируемого пакета — `valutatrade_hub`.
+
+## Структура проекта
+
+```text
+finalproject_tkachuk_М26-555/
+├── valutatrade_hub/
+│   ├── __init__.py
+│   ├── __main__.py
+│   ├── default_config.json
+│   ├── decorators.py
+│   ├── logging_config.py
+│   ├── core/
+│   │   ├── __init__.py
+│   │   ├── models.py
+│   │   ├── currencies.py
+│   │   ├── exceptions.py
+│   │   ├── rates.py
+│   │   ├── usecases.py
+│   │   └── utils.py
+│   ├── infra/
+│   │   ├── __init__.py
+│   │   ├── database.py
+│   │   ├── json_io.py
+│   │   ├── serialization.py
+│   │   └── settings.py
+│   ├── parser_service/
+│   │   ├── __init__.py
+│   │   ├── __main__.py
+│   │   ├── api_clients.py
+│   │   ├── config.py
+│   │   ├── scheduler.py
+│   │   ├── storage.py
+│   │   └── updater.py
+│   └── cli/
+│       ├── __init__.py
+│       ├── composition.py
+│       └── interface.py
+├── data/
+│   ├── examples/
+│   │   ├── users.json
+│   │   ├── portfolios.json
+│   │   ├── rates.json
+│   │   └── exchange_rates.json
+│   ├── users.json
+│   ├── portfolios.json
+│   ├── rates.json
+│   └── exchange_rates.json
+├── logs/
+├── tests/
+│   ├── fixtures/api/
+│   ├── integration/
+│   ├── unit/
+│   ├── conftest.py
+│   ├── test_entry_points.py
+│   └── test_packaging.py
+├── scripts/
+│   ├── check.sh
+│   └── check_installed.py
+├── main.py
+├── pyproject.toml
+├── uv.lock
+├── .python-version
+├── .env.example
+├── .gitignore
+└── README.md
+```
+
+Core содержит модели и бизнес-логику, Infra — конфигурацию и JSON-хранилище, Parser Service — получение/историю курсов и расписание, CLI — разбор команд и вывод. Четыре JSON-файла непосредственно в `data/` и каталог `logs/` создаются при работе и не входят в Git или дистрибутив. `data/examples/` содержит только пустые образцы. `dist/` с результатами сборки и `.venv/` также не отслеживаются.
 
 ## Работа с приложением
 
@@ -141,10 +213,73 @@ uv run valutatrade-parser --interval 300 --fiat-interval 86400
 
 ```bash
 bash scripts/check.sh
-uv build
 ```
 
-Скрипт запускает Ruff и полный набор тестов. Реальные JSON-данные приложения, логи и `.venv` не отслеживаются Git.
+Скрипт синхронизирует окружение по lock-файлу, запускает Ruff (включая автоисправления и форматирование), затем полный pytest. Тесты используют временные каталоги, фиктивные котировки и подменённый HTTP-транспорт; действующие API-ключи не нужны. Они не заменяют демонстрацию настоящего обращения к API.
+
+## Сборка и самостоятельная установка
+
+В корне исходников, после `uv sync --locked`:
+
+```bash
+build_dir="dist/validation-$(date +%Y%m%d-%H%M%S)"
+uv build --out-dir "$build_dir"
+uv run twine check --strict "$build_dir"/*
+wheel="$(realpath "$build_dir/finalproject_tkachuk_m26_555-0.1.0-py3-none-any.whl")"
+uv tool install --force --python 3.12 "$wheel"
+uv tool dir --bin
+```
+
+Используйте новый каталог для каждой проверки, чтобы не смешивать текущие и устаревшие архивы. `uv build` создаёт sdist (`.tar.gz`), затем wheel из него; `twine check` проверяет метаданные и разметку README, ничего не публикуя. Sdist включает тесты, скрипты, `uv.lock`, образец окружения и пустые примеры JSON; wheel — пакет и `default_config.json`, без рабочих данных и тестов.
+
+`uv tool install` устанавливает приложение в отдельное окружение. `--force` заменяет ранее установленную версию этого инструмента, не удаляя пользовательские данные. Добавьте каталог команд в PATH текущего Bash:
+
+```bash
+tool_bin="$(uv tool dir --bin)"
+if command -v cygpath >/dev/null 2>&1; then
+    tool_bin="$(cygpath -u "$tool_bin")"
+fi
+export PATH="$tool_bin:$PATH"
+hash -r
+```
+
+Теперь перейдите в отдельный рабочий каталог **вне исходников** и запускайте установленный инструмент без `uv run`:
+
+```bash
+mkdir -p "$HOME/valutatrade-work"
+cd "$HOME/valutatrade-work"
+valutatrade --help
+valutatrade-parser --help
+valutatrade --data-dir ./data
+```
+
+Данные и логи создаются в рабочем каталоге, не рядом с установленным пакетом. `.env` не загружается автоматически: передайте ключи через `export` (см. ниже).
+
+Для офлайн-проверки установленного wheel вернитесь в исходники и выполните:
+
+```bash
+tool_home="$(uv tool dir)/finalproject-tkachuk-m26-555"
+tool_bin="$(uv tool dir --bin)"
+if command -v cygpath >/dev/null 2>&1; then
+    tool_home="$(cygpath -u "$tool_home")"
+    tool_bin="$(cygpath -u "$tool_bin")"
+fi
+if [ -f "$tool_home/Scripts/python.exe" ]; then
+    installed_python="$tool_home/Scripts/python.exe"
+    suffix=".exe"
+else
+    installed_python="$tool_home/bin/python"
+    suffix=""
+fi
+uv run python scripts/check_installed.py \
+    --python "$installed_python" \
+    --cli "$tool_bin/valutatrade$suffix" \
+    --parser "$tool_bin/valutatrade-parser$suffix"
+```
+
+Скрипт запускает именно установленный Python и команды, а не исходники: проверяет происхождение пакета, пакетные настройки, CLI/Parser, сделки по явно фиктивному свежему кэшу, ошибки и сохранение данных. Проверки идут во временном каталоге вне проекта без `PYTHONPATH`; реальные API-ключи исключены из дочернего окружения. Вызов ExchangeRate без ключа проверяет контролируемый отказ до HTTP. После завершения тестовые данные удаляются, установленный пакет не меняется.
+
+Для проверки восстановления окружения распакуйте sdist в новый каталог, выполните там `uv sync --locked` и `bash scripts/check.sh`. Не копируйте `.venv` между каталогами или Windows/Linux: окружение создаётся заново для своей платформы. Wheel разрешает зависимости по ограничениям метаданных; точные версии разработки воспроизводятся через `uv.lock`. Публикация на PyPI не требуется. См. [установку инструментов uv](https://docs.astral.sh/uv/guides/tools/) и [состав дистрибутивов](https://docs.astral.sh/uv/concepts/build-backend/).
 
 ## Доменные модели
 
@@ -160,13 +295,23 @@ uv build
 
 CoinGecko использует Demo endpoint `simple/price` и сопоставления BTC→bitcoin, ETH→ethereum, SOL→solana. Ключ `COINGECKO_API_KEY` передаётся заголовком `x-cg-demo-api-key`. Без него допускается одна попытка обычного запроса; доступ в этом режиме не гарантируется. ExchangeRate-API требует `EXCHANGERATE_API_KEY` и читает `conversion_rates` стандартного v6-ответа с базой USD. Значения USD→EUR/GBP/RUB инвертируются: например, `0.927` превращается в `EUR_USD = 1 / 0.927`.
 
-`ParserConfig` читает ключи из окружения при создании; `repr` их не содержит. `.env` автоматически не загружается. Если ключи записаны в локальном `.env`, перед использованием загрузите их в текущий Git Bash:
+`ParserConfig` читает ключи из окружения при создании; `repr` их не содержит. `.env` автоматически не загружается. `.env.example` содержит только пустые `EXCHANGERATE_API_KEY` и `COINGECKO_API_KEY`. Создайте собственный `.env` на его основе, не перезаписывая существующий, и заполните ключи из кабинетов поставщиков. Не добавляйте `.env` в Git и не показывайте при записи демонстрации. Для запуска из исходников:
 
 ```bash
-set -a
-source .env
-set +a
+uv run --env-file .env valutatrade update-rates
+uv run --env-file .env valutatrade
 ```
+
+Для установленной команды либо без сохранения ключей на диск введите их скрыто в текущем Bash:
+
+```bash
+read -r -s -p "ExchangeRate API key: " EXCHANGERATE_API_KEY; printf '\n'
+read -r -s -p "CoinGecko Demo API key: " COINGECKO_API_KEY; printf '\n'
+export EXCHANGERATE_API_KEY COINGECKO_API_KEY
+valutatrade update-rates
+```
+
+Команды ввода не содержат значений ключей в истории shell. Не используйте `echo` для проверки секретов. После работы при необходимости выполните `unset EXCHANGERATE_API_KEY COINGECKO_API_KEY`. Для входа используйте только учебные пароли: командный интерфейс и SHA-256 с солью реализованы для задания, не для защиты настоящих финансовых учётных данных.
 
 `ParserConfig.from_settings(settings)` использует общие пути данных и таймаут Core. Клиент не записывает JSON и не изменяет кошельки. После полного успешного ответа `last_metadata` содержит UTC-время получения, длительность в миллисекундах, HTTP-статус и метаданные пар. Время котировки поставщика сохраняется отдельно как `provider_updated_at`, если оно присутствует; отсутствующее время не выдумывается. Перед каждой попыткой прежние метаданные очищаются. Сессии, созданные клиентом, освобождаются методом `close()`; переданными извне сессиями управляет вызывающий код.
 
@@ -217,7 +362,23 @@ database.initialize()
 }
 ```
 
-Пути разрешаются относительно текущего рабочего каталога. По умолчанию данные находятся в `./data`, логи — в соседнем `./logs`. Путь можно изменить через `VALUTATRADE_DATA_DIR`, а логи — через `VALUTATRADE_LOG_DIR`. TTL задаётся `VALUTATRADE_RATES_TTL_SECONDS`. Полный список переменных и исходные значения показаны в `.env.example`.
+Пути разрешаются относительно текущего рабочего каталога. По умолчанию данные находятся в `./data`, логи — в соседнем `./logs`. Полный список настроек ниже; имя переменной окружения — `VALUTATRADE_` плюс имя настройки в верхнем регистре, например `VALUTATRADE_RATES_TTL_SECONDS`.
+
+| Настройка | По умолчанию | Назначение |
+|---|---|---|
+| `data_dir` | `data` | Каталог JSON |
+| `log_dir` | `null` | `logs` рядом с каталогом данных |
+| `rates_ttl_seconds` | `300` | Срок свежести каждой пары |
+| `base_currency` | `USD` | База оценки портфеля |
+| `request_timeout_seconds` | `10` | Таймаут HTTP |
+| `update_interval_seconds` | `300` | Интервал CoinGecko для парсера |
+| `log_level` | `INFO` | Уровень диагностических событий |
+| `log_format` | `json` | Формат журнала |
+| `log_max_bytes` | `1048576` | Порог ротации |
+| `log_backup_count` | `3` | Число архивов каждого журнала |
+| `lock_timeout_seconds` | `5` | Ожидание файловой блокировки |
+
+Не задавайте необязательные переменные пустыми строками: чтобы применились значения по умолчанию, оставьте переменные незаданными. Отдельный интервал фиата задаётся параметром `--fiat-interval`, а не `update_interval_seconds`.
 
 Сам `SettingsLoader` не ищет `.env`; для передачи его содержимого в окружение можно использовать `uv run --env-file .env ...`.
 

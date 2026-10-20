@@ -21,6 +21,33 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 module-name = "valutatrade_hub"
 module-root = ""
+source-include = [
+    ".python-version",
+    ".env.example",
+    "main.py",
+    "uv.lock",
+    "scripts/**",
+    "tests/**",
+    "data/examples/**",
+]
+source-exclude = [
+    ".git/**",
+    ".venv/**",
+    ".env",
+    ".env.local",
+    "docs/**",
+    "logs/**",
+    "dist/**",
+    ".codex/**",
+    ".agents/**",
+    "**/__pycache__/**",
+    "**/*.pyc",
+    "**/.pytest_cache/**",
+    "**/.ruff_cache/**",
+    "data/*.json",
+    "data/*.lock",
+    "data/*.tmp",
+]
 
 [tool.ruff]
 line-length = 88
@@ -35,4 +62,5 @@ ignore = []
 dev = [
     "pytest>=9.1.1",
     "ruff>=0.17.1",
+    "twine>=6.0",
 ]
